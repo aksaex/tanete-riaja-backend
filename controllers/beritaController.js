@@ -77,11 +77,19 @@ exports.buatBerita = async (req, res) => {
 // 4. PUT: Update Berita (Admin)
 exports.updateBerita = async (req, res) => {
   try {
+    const { id } = req.params;
     const dataUpdate = { ...req.body };
+
+    // Hapus field yang tidak boleh diupdate (misal: _id, createdAt, slug otomatis)
+    delete dataUpdate._id;
+    delete dataUpdate.createdAt;
 
     // Jika ada upload gambar baru, ganti URL gambarnya
     if (req.file) {
       dataUpdate.gambar = req.file.path;
+    } else {
+      // Jika tidak ada file gambar, hapus field gambar dari update (agar tidak mengubah yang lama)
+      delete dataUpdate.gambar;
     }
 
     // Jika judul diubah, update juga slug-nya
@@ -92,10 +100,15 @@ exports.updateBerita = async (req, res) => {
         .replace(/(^-|-$)+/g, '');
     }
 
-    const berita = await Berita.findByIdAndUpdate(req.params.id, dataUpdate, {
-      new: true,
-      runValidators: true,
-    });
+    // 🔥 PERBAIKAN UTAMA: gunakan returnDocument: 'after' bukan new: true
+    const berita = await Berita.findByIdAndUpdate(
+      id,
+      dataUpdate,
+      {
+        returnDocument: 'after', // ← ini pengganti new: true
+        runValidators: true,
+      }
+    );
 
     if (!berita) {
       return res.status(404).json({ status: 'error', message: 'Berita tidak ditemukan' });
