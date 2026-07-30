@@ -4,58 +4,82 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 
+// Load .env untuk lokal
+dotenv.config();
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Middleware Otomatis: Coba koneksi database pada setiap request jika MONGO_URI tersedia
+app.use(async (req, res, next) => {
+  if (process.env.MONGO_URI) {
+    await connectDB();
+  }
+  next();
+});
+
 // Import Routes
 const beritaRoutes = require('./routes/beritaRoutes');
 const authRoutes = require('./routes/authRoutes');
 
-// 1. Load environment variables dari .env
-dotenv.config();
-
-// 2. Hubungkan ke MongoDB Atlas
-connectDB();
-
-// 3. Inisialisasi Aplikasi Express
-const app = express();
-
-// 4. Middleware
-app.use(cors()); // Mencegah error CORS dari Frontend Next.js / Vercel
-app.use(express.json()); // Agar bisa menerima Request Body berbentuk JSON
-app.use(express.urlencoded({ extended: true })); // Agar bisa menerima form-data (upload gambar)
-
-// 5. Daftarkan Route API
-app.use('/api/berita', beritaRoutes);
-app.use('/api/auth', authRoutes);
-
-// 6. Tes Endpoint Sederhana (Root URL & /api)
-// Dibuat 2 endpoint agar saat Vercel membuka URL root maupun /api tidak muncul error 404
+// =========================================================
+// 🚀 ENDPOINT DIAGNOSA & PENDETEKSI ERROR (ROOT URL)
+// =========================================================
 app.get(['/', '/api'], (req, res) => {
+  const isMongoUriExist = Boolean(process.env.MONGO_URI);
+  const isJwtExist = Boolean(process.env.JWT_SECRET);
+  const isCloudinaryExist = Boolean(process.env.CLOUDINARY_CLOUD_NAME);
+
+  // Samarkan string URI demi keamanan tapi membantu diagnosa
+  let maskedUri = 'TIDAK TERDETEKSI (undefined)';
+  if (isMongoUriExist) {
+    const uri = process.env.MONGO_URI;
+    maskedUri = `${uri.substring(0, 15)}...${uri.substring(uri.length - 12)}`;
+  }
+
   res.status(200).json({
-    status: 'success',
-    message: '🚀 API Server Kecamatan Tanete Riaja Berjalan Sempurna di Vercel!',
+    status: isMongoUriExist ? 'online' : 'warning',
+    message: isMongoUriExist
+      ? '🚀 API Server Kecamatan Tanete Riaja Berjalan Sempurna!'
+      : '⚠️ Server berjalan, TETAPI Environment Variable MONGO_URI belum terbaca oleh Vercel!',
+    diagnosa_env: {
+      MONGO_URI: isMongoUriExist ? `ADA (${maskedUri})` : '❌ KOSONG / UNDEFINED',
+      JWT_SECRET: isJwtExist ? 'ADA' : '❌ KOSONG',
+      CLOUDINARY_CLOUD_NAME: isCloudinaryExist ? 'ADA' : '❌ KOSONG',
+      NODE_ENV: process.env.NODE_ENV || 'development',
+    },
+    daftar_key_env_terbaca: Object.keys(process.env).filter(
+      (key) => !key.startsWith('npm_') && !key.startsWith('VERCEL_')
+    ),
     waktu_server: new Date().toISOString(),
   });
 });
 
-// 7. Global Error Handler (Menangani error secara rapi agar selalu membalas JSON)
+// Daftarkan Route Utama
+app.use('/api/berita', beritaRoutes);
+app.use('/api/auth', authRoutes);
+
+// Global Error Handler
 app.use((err, req, res, next) => {
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
   res.status(statusCode).json({
     status: 'error',
     message: err.message || 'Terjadi kesalahan pada server',
-    // Hanya tampilkan detail stack trace jika bukan di production
     stack: process.env.NODE_ENV === 'production' ? null : err.stack,
   });
 });
 
-// 8. Menjalankan Server (Hanya dijalankan jika TIDAK di Vercel/Serverless environment)
+// Jalankan server di lokal jika bukan di Vercel
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
-    console.log(`==================================================`);
     console.log(`🔥 SERVER BERJALAN DI: http://localhost:${PORT}`);
-    console.log(`==================================================`);
   });
 }
 
-// 9. WAJIB UNTUK VERCEL: Export aplikasi Express sebagai modul serverless
+// Export aplikasi Express untuk Vercel Serverless Function
 module.exports = app;
