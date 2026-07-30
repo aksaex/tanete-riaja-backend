@@ -9,8 +9,31 @@ dotenv.config();
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// =========================================================
+// 🔥 CORS - Konfigurasi untuk Vercel & Local
+// =========================================================
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://tanete-riaja-frontend.vercel.app',
+  'https://taneteriaja.go.id',
+  // Tambahkan domain frontend Vercel Anda
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -25,6 +48,7 @@ app.use(async (req, res, next) => {
 // Import Routes
 const beritaRoutes = require('./routes/beritaRoutes');
 const authRoutes = require('./routes/authRoutes');
+const adminRoutes = require('./routes/adminRoutes'); // 👈 Tambahkan ini
 
 // =========================================================
 // 🚀 ENDPOINT DIAGNOSA & PENDETEKSI ERROR (ROOT URL)
@@ -34,7 +58,6 @@ app.get(['/', '/api'], (req, res) => {
   const isJwtExist = Boolean(process.env.JWT_SECRET);
   const isCloudinaryExist = Boolean(process.env.CLOUDINARY_CLOUD_NAME);
 
-  // Samarkan string URI demi keamanan tapi membantu diagnosa
   let maskedUri = 'TIDAK TERDETEKSI (undefined)';
   if (isMongoUriExist) {
     const uri = process.env.MONGO_URI;
@@ -62,6 +85,7 @@ app.get(['/', '/api'], (req, res) => {
 // Daftarkan Route Utama
 app.use('/api/berita', beritaRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes); // 👈 Route untuk create admin pertama
 
 // Global Error Handler
 app.use((err, req, res, next) => {
