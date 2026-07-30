@@ -14,18 +14,26 @@ const app = express();
 // =========================================================
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'https://tanete-riaja-frontend.vercel.app',
+  'https://tanete-riaja-frontendd.vercel.app', // 👈 Tambahkan domain Anda (double 'd')
   'https://taneteriaja.go.id',
-  // Tambahkan domain frontend Vercel Anda
+  // Tambahkan domain lain jika perlu
 ];
 
+// Middleware CORS
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
+    // Allow all origins during development
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.warn(`⚠️ CORS blocked origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -34,8 +42,22 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Handle preflight OPTIONS request secara eksplisit
+app.options('*', cors());
+
+// Middleware logging untuk debugging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`📡 ${req.method} ${req.url} → ${res.statusCode} (${duration}ms) - Origin: ${req.headers.origin || 'N/A'}`);
+  });
+  next();
+});
+
+// Body parser
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Middleware Otomatis: Coba koneksi database pada setiap request jika MONGO_URI tersedia
 app.use(async (req, res, next) => {
@@ -48,7 +70,7 @@ app.use(async (req, res, next) => {
 // Import Routes
 const beritaRoutes = require('./routes/beritaRoutes');
 const authRoutes = require('./routes/authRoutes');
-const adminRoutes = require('./routes/adminRoutes'); // 👈 Tambahkan ini
+const adminRoutes = require('./routes/adminRoutes');
 
 // =========================================================
 // 🚀 ENDPOINT DIAGNOSA & PENDETEKSI ERROR (ROOT URL)
@@ -85,11 +107,20 @@ app.get(['/', '/api'], (req, res) => {
 // Daftarkan Route Utama
 app.use('/api/berita', beritaRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api/admin', adminRoutes); // 👈 Route untuk create admin pertama
+app.use('/api/admin', adminRoutes);
+
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({
+    status: 'error',
+    message: `Endpoint ${req.method} ${req.url} tidak ditemukan`,
+  });
+});
 
 // Global Error Handler
 app.use((err, req, res, next) => {
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  const statusCode = err.statusCode || res.statusCode === 200 ? 500 : res.statusCode;
+  console.error('❌ Global Error:', err.stack || err.message);
   res.status(statusCode).json({
     status: 'error',
     message: err.message || 'Terjadi kesalahan pada server',
@@ -102,6 +133,8 @@ if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`🔥 SERVER BERJALAN DI: http://localhost:${PORT}`);
+    console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🔗 CORS allowed origins:`, allowedOrigins);
   });
 }
 

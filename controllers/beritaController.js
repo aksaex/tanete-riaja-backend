@@ -1,41 +1,94 @@
 // controllers/beritaController.js
 const Berita = require('../models/Berita');
 
+// ============================================================
 // 1. GET: Ambil Semua Berita (Publik)
+// ============================================================
 exports.getSemuaBerita = async (req, res) => {
   try {
-    const berita = await Berita.find().sort({ createdAt: -1 }); // Urutkan dari yang terbaru
+    console.log('📡 GET /api/berita - Mengambil semua berita');
+    const berita = await Berita.find().sort({ createdAt: -1 });
+    console.log(`✅ Ditemukan ${berita.length} berita`);
     res.status(200).json({
       status: 'success',
       jumlah: berita.length,
       data: berita,
     });
   } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+    console.error('❌ Error getSemuaBerita:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Gagal mengambil data berita',
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message,
+    });
   }
 };
 
+// ============================================================
 // 2. GET: Ambil Detail Satu Berita Berdasarkan Slug (Publik)
+// ============================================================
 exports.getDetailBerita = async (req, res) => {
   try {
-    const berita = await Berita.findOne({ slug: req.params.slug });
-    if (!berita) {
-      return res.status(404).json({ status: 'error', message: 'Berita tidak ditemukan' });
+    const { slug } = req.params;
+    console.log(`📡 GET /api/berita/${slug} - Mencari detail berita`);
+
+    if (!slug) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Slug tidak boleh kosong',
+      });
     }
-    res.status(200).json({ status: 'success', data: berita });
+
+    // 🔥 PERBAIKAN: Gunakan regex case-insensitive dan trim
+    const slugTrimmed = slug.trim();
+    const berita = await Berita.findOne({
+      slug: { $regex: new RegExp(`^${slugTrimmed}$`), $options: 'i' },
+    });
+
+    if (!berita) {
+      console.log(`❌ Berita dengan slug "${slugTrimmed}" tidak ditemukan`);
+      return res.status(404).json({
+        status: 'error',
+        message: 'Berita tidak ditemukan',
+      });
+    }
+
+    console.log(`✅ Berita ditemukan: "${berita.judul}" (ID: ${berita._id})`);
+    res.status(200).json({
+      status: 'success',
+      data: berita,
+    });
   } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+    console.error('❌ Error getDetailBerita:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Terjadi kesalahan saat mengambil detail berita',
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message,
+    });
   }
 };
 
+// ============================================================
 // 3. POST: Buat Berita Baru + Upload Gambar (Admin)
+// ============================================================
 exports.buatBerita = async (req, res) => {
   try {
     const { judul, ringkasan, konten, kategori, penulis } = req.body;
 
-    // Generate slug otomatis dari judul (misal: "Panen Padi" -> "panen-padi")
+    console.log(`📡 POST /api/berita - Membuat berita baru: "${judul}"`);
+
+    // Validasi input
+    if (!judul || !ringkasan || !konten) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Judul, ringkasan, dan konten wajib diisi!',
+      });
+    }
+
+    // Generate slug otomatis dari judul
     const slug = judul
       .toLowerCase()
+      .trim()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)+/g, '');
 
@@ -43,10 +96,13 @@ exports.buatBerita = async (req, res) => {
     const gambarUrl = req.file ? req.file.path : '';
 
     if (!gambarUrl) {
-      return res.status(400).json({ status: 'error', message: 'Gambar wajib diupload!' });
+      return res.status(400).json({
+        status: 'error',
+        message: 'Gambar wajib diupload!',
+      });
     }
 
-    // Format tanggal Indonesia modern (contoh: "29 Juli 2026")
+    // Format tanggal Indonesia
     const tanggalSekarang = new Date().toLocaleDateString('id-ID', {
       day: 'numeric',
       month: 'long',
@@ -59,36 +115,48 @@ exports.buatBerita = async (req, res) => {
       ringkasan,
       konten,
       gambar: gambarUrl,
-      kategori,
+      kategori: kategori || 'Umum',
       tanggal: tanggalSekarang,
       penulis: penulis || 'Admin Kecamatan',
+      status: 'published',
     });
 
+    console.log(`✅ Berita berhasil dibuat: "${beritaBaru.judul}" (ID: ${beritaBaru._id})`);
     res.status(201).json({
       status: 'success',
       message: 'Berita berhasil dipublikasikan!',
       data: beritaBaru,
     });
   } catch (error) {
-    res.status(400).json({ status: 'error', message: error.message });
+    console.error('❌ Error buatBerita:', error);
+    res.status(400).json({
+      status: 'error',
+      message: error.message || 'Gagal membuat berita',
+    });
   }
 };
 
+// ============================================================
 // 4. PUT: Update Berita (Admin)
+// ============================================================
 exports.updateBerita = async (req, res) => {
   try {
     const { id } = req.params;
     const dataUpdate = { ...req.body };
 
-    // Hapus field yang tidak boleh diupdate (misal: _id, createdAt, slug otomatis)
+    console.log(`📡 PUT /api/berita/${id} - Update berita`);
+
+    // Hapus field yang tidak boleh diupdate
     delete dataUpdate._id;
     delete dataUpdate.createdAt;
+    delete dataUpdate.__v;
 
     // Jika ada upload gambar baru, ganti URL gambarnya
     if (req.file) {
       dataUpdate.gambar = req.file.path;
+      console.log('🖼️ Gambar baru diupload:', dataUpdate.gambar);
     } else {
-      // Jika tidak ada file gambar, hapus field gambar dari update (agar tidak mengubah yang lama)
+      // Jika tidak ada file gambar, hapus field gambar dari update
       delete dataUpdate.gambar;
     }
 
@@ -96,46 +164,78 @@ exports.updateBerita = async (req, res) => {
     if (dataUpdate.judul) {
       dataUpdate.slug = dataUpdate.judul
         .toLowerCase()
+        .trim()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)+/g, '');
+      console.log(`🔄 Slug diperbarui menjadi: "${dataUpdate.slug}"`);
     }
 
-    // 🔥 PERBAIKAN UTAMA: gunakan returnDocument: 'after' bukan new: true
+    // 🔥 PERBAIKAN: Gunakan returnDocument: 'after'
     const berita = await Berita.findByIdAndUpdate(
       id,
       dataUpdate,
       {
-        returnDocument: 'after', // ← ini pengganti new: true
+        returnDocument: 'after',
         runValidators: true,
+        new: false, // Agar kompatibel dengan versi lama
       }
     );
 
     if (!berita) {
-      return res.status(404).json({ status: 'error', message: 'Berita tidak ditemukan' });
+      console.log(`❌ Berita dengan ID "${id}" tidak ditemukan`);
+      return res.status(404).json({
+        status: 'error',
+        message: 'Berita tidak ditemukan',
+      });
     }
 
+    console.log(`✅ Berita berhasil diperbarui: "${berita.judul}"`);
     res.status(200).json({
       status: 'success',
       message: 'Berita berhasil diperbarui!',
       data: berita,
     });
   } catch (error) {
-    res.status(400).json({ status: 'error', message: error.message });
+    console.error('❌ Error updateBerita:', error);
+    res.status(400).json({
+      status: 'error',
+      message: error.message || 'Gagal memperbarui berita',
+    });
   }
 };
 
+// ============================================================
 // 5. DELETE: Hapus Berita (Admin)
+// ============================================================
 exports.hapusBerita = async (req, res) => {
   try {
-    const berita = await Berita.findByIdAndDelete(req.params.id);
+    const { id } = req.params;
+    console.log(`📡 DELETE /api/berita/${id} - Hapus berita`);
+
+    const berita = await Berita.findByIdAndDelete(id);
+
     if (!berita) {
-      return res.status(404).json({ status: 'error', message: 'Berita tidak ditemukan' });
+      console.log(`❌ Berita dengan ID "${id}" tidak ditemukan`);
+      return res.status(404).json({
+        status: 'error',
+        message: 'Berita tidak ditemukan',
+      });
     }
+
+    console.log(`✅ Berita berhasil dihapus: "${berita.judul}"`);
     res.status(200).json({
       status: 'success',
       message: 'Berita berhasil dihapus dari sistem!',
+      data: {
+        id: berita._id,
+        judul: berita.judul,
+      },
     });
   } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+    console.error('❌ Error hapusBerita:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Gagal menghapus berita',
+    });
   }
 };
