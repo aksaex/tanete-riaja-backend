@@ -15,7 +15,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
-  'https://taneteriaja.vercel.app/', // domain Anda
+  'https://taneteriaja.vercel.app', // domain Anda
   'https://taneteriaja.go.id',
 ];
 
